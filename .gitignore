@@ -1,0 +1,43 @@
+# Cache and generated files
+cache/
+cache/exports/
+cache/frames/
+cache/output/
+__pycache__/
+*.pyc
+*.pyo
+.gradio/
+
+# Media files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+app.log
+
+# Environment
+.env
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Confidential
+users.json
+*.secret
+*.credentials

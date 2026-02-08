@@ -1,0 +1,18 @@
+# Core dependencies
+torch>=2.0.0
+numpy>=1.24.0
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# SAM2
+sam2 @ git+https://github.com/facebookresearch/sam2.git
+
+# Web UI
+gradio>=4.0.0
+
+# Visualization
+matplotlib>=3.7.0
+tqdm>=4.65.0
+
+# Data processing
+pandas>=2.0.0
