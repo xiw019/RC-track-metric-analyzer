@@ -4,8 +4,8 @@ numpy>=1.24.0
 opencv-python>=4.8.0
 Pillow>=10.0.0
 
-# SAM2
-sam2 @ git+https://github.com/facebookresearch/sam2.git
+# SAM2 - install separately (see README)
+# Note: Do NOT use "sam2 @ git+..." syntax - the package name changed to "sam-2"
 
 # Web UI
 gradio>=4.0.0

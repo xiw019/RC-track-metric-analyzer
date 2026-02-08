@@ -27,11 +27,41 @@ Simply place your camera on the side of the track, mark reference points, and le
 
 ### Installation
 
+**Option A: Using conda (recommended)**
+
+```bash
+# Install Miniconda if you don't have conda
+curl -sSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o miniconda.sh
+bash miniconda.sh -b -p $HOME/miniconda3
+source $HOME/miniconda3/etc/profile.d/conda.sh
+
+# Create environment
+conda create -n rc-track-analyzer python=3.10 -y
+conda activate rc-track-analyzer
+
+# Install PyTorch with CUDA (for GPU support)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# Or for CPU-only (slower but works without NVIDIA GPU)
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# Install other dependencies
+pip install -r requirements.txt
+
+# Install SAM2 (must be done separately - see note below)
+pip install git+https://github.com/facebookresearch/sam2.git
+```
+
+**Option B: Using pip directly**
+
 ```bash
 git clone https://github.com/your-username/rc-track-analyzer.git
 cd rc-track-analyzer
 pip install -r requirements.txt
+pip install git+https://github.com/facebookresearch/sam2.git
 ```
+
+> **Note on SAM2 installation:** The SAM2 package must be installed directly from GitHub using `pip install git+https://github.com/facebookresearch/sam2.git`. The syntax `sam2 @ git+...` in requirements.txt does not work because the package metadata uses the name `sam-2` instead of `sam2`.
 
 ### Usage
 
