@@ -70,6 +70,16 @@ Video Input → Frame Extraction → Calibration → SAM2 Tracking → BEV Traje
 6. **View results** – Generate BEV trajectory plots with speed/acceleration overlays
 7. **Detect laps** – Click *Detect Laps* to get per-object lap times, best lap, averages, and spread. Use the lap selector to filter plots and animations to a single lap.
 
+### Calibration example
+
+![Calibration example](docs/example_calibration.png)
+
+The calibration step uses two rectangles of known real-world dimensions (shown as cyan R1 and orange R2) to compute a homography transform. You also place a start/finish line (magenta) and select the object to track (red dot).
+
+This is especially convenient for **Mini-Z** and similar small-scale RC tracks, where the interlocking track tiles are a standard **50 × 50 cm** — you can simply use the tile edges as calibration rectangles without any extra setup.
+
+For **larger-scale RC cars** (1/10, 1/8, etc.) running on bigger tracks, the same approach works: just place physical calibration markers (e.g. tape squares or cones) at known positions on the track and measure their real-world coordinates.
+
 ## Project Structure
 
 ```

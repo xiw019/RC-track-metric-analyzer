@@ -14,9 +14,72 @@ from PIL import Image
 from typing import Dict, List, Tuple, Optional, Callable, Generator
 from dataclasses import dataclass, field
 
-from sam2.build_sam import build_sam2_video_predictor_hf
+try:
+    from sam2.build_sam import build_sam2_video_predictor_hf
+except ImportError:
+    build_sam2_video_predictor_hf = None
+
+from sam2.build_sam import build_sam2_video_predictor
 
 logger = logging.getLogger(__name__)
+
+# Fallback when build_sam2_video_predictor_hf is not in the installed sam2 (e.g. older PyPI).
+# Config names are relative to the package's configs/ dir (Hydra search path = .../sam2/configs).
+# PyPI sam2 only ships sam2 (no sam2.1); sam2.1 model_ids fall back to equivalent sam2 variant.
+HF_MODEL_ID_TO_FILENAMES = {
+    "facebook/sam2-hiera-tiny": ("sam2_hiera_t.yaml", "sam2_hiera_tiny.pt"),
+    "facebook/sam2-hiera-small": ("sam2_hiera_s.yaml", "sam2_hiera_small.pt"),
+    "facebook/sam2-hiera-base-plus": ("sam2_hiera_b+.yaml", "sam2_hiera_base_plus.pt"),
+    "facebook/sam2-hiera-large": ("sam2_hiera_l.yaml", "sam2_hiera_large.pt"),
+    "facebook/sam2.1-hiera-tiny": ("sam2.1/sam2.1_hiera_t.yaml", "sam2.1_hiera_tiny.pt"),
+    "facebook/sam2.1-hiera-small": ("sam2.1/sam2.1_hiera_s.yaml", "sam2.1_hiera_small.pt"),
+    "facebook/sam2.1-hiera-base-plus": ("sam2.1/sam2.1_hiera_b+.yaml", "sam2.1_hiera_base_plus.pt"),
+    "facebook/sam2.1-hiera-large": ("sam2.1/sam2.1_hiera_l.yaml", "sam2.1_hiera_large.pt"),
+}
+# When sam2.1 configs are missing (PyPI), use equivalent sam2 model (same size).
+SAM21_TO_SAM2_FALLBACK = {
+    "facebook/sam2.1-hiera-tiny": ("facebook/sam2-hiera-tiny", "sam2_hiera_t.yaml", "sam2_hiera_tiny.pt"),
+    "facebook/sam2.1-hiera-small": ("facebook/sam2-hiera-small", "sam2_hiera_s.yaml", "sam2_hiera_small.pt"),
+    "facebook/sam2.1-hiera-base-plus": ("facebook/sam2-hiera-base-plus", "sam2_hiera_b+.yaml", "sam2_hiera_base_plus.pt"),
+    "facebook/sam2.1-hiera-large": ("facebook/sam2-hiera-large", "sam2_hiera_l.yaml", "sam2_hiera_large.pt"),
+}
+
+
+def _build_sam2_video_predictor_for_model(model_id: str, device: str):
+    """Build SAM2 video predictor for a Hugging Face model id (works with or without _hf helper)."""
+    if build_sam2_video_predictor_hf is not None:
+        return build_sam2_video_predictor_hf(model_id, device=device)
+    from huggingface_hub import hf_hub_download
+    from hydra.errors import MissingConfigException
+
+    # Prefer exact mapping; if model is sam2.1 and that fails (PyPI has no sam2.1 configs), use sam2 fallback.
+    repo_id = model_id
+    config_name, checkpoint_name = HF_MODEL_ID_TO_FILENAMES.get(
+        model_id, (None, None)
+    )
+    if config_name is None:
+        raise ValueError(
+            f"Unknown model_id: {model_id}. Supported: {list(HF_MODEL_ID_TO_FILENAMES)}"
+        )
+
+    def do_build(cfg: str, repo: str, ckpt: str):
+        path = hf_hub_download(repo_id=repo, filename=ckpt)
+        return build_sam2_video_predictor(
+            config_file=cfg, ckpt_path=path, device=device
+        )
+
+    try:
+        return do_build(config_name, repo_id, checkpoint_name)
+    except MissingConfigException:
+        fallback = SAM21_TO_SAM2_FALLBACK.get(model_id)
+        if fallback is None:
+            raise
+        repo_id_fb, config_fb, ckpt_fb = fallback
+        logger.info(
+            "sam2.1 config not found (e.g. PyPI sam2); using equivalent sam2 model: %s",
+            repo_id_fb,
+        )
+        return do_build(config_fb, repo_id_fb, ckpt_fb)
 
 
 @dataclass
@@ -63,21 +126,34 @@ class Tracker:
     
     def __init__(self, model_id: str = "facebook/sam2.1-hiera-tiny", device: str = "auto"):
         self.model_id = model_id
-        self.device = device if device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device if device != "auto" else self._select_device()
         self._inference_state = None
         self.video_segments: Dict[int, Dict[int, np.ndarray]] = {}
         self.trajectories: Dict[int, List[Tuple[int, float, float]]] = {}
         self.num_frames: int = 0
         self.video_fps: float = 30.0
     
+    @staticmethod
+    def _select_device() -> str:
+        """Pick the best available device, verifying CUDA arch compatibility."""
+        if not torch.cuda.is_available():
+            return "cpu"
+        try:
+            # Run a tiny operation to verify CUDA kernels work on this GPU.
+            torch.zeros(1, device="cuda")
+            return "cuda"
+        except RuntimeError as e:
+            logger.warning("CUDA available but unusable (%s); falling back to CPU.", e)
+            return "cpu"
+
     @property
     def predictor(self):
         """Lazy-load the SAM2 predictor (shared across Tracker instances)."""
         cache_key = f"{self.model_id}:{self.device}"
         if cache_key not in Tracker._model_cache:
             logger.info("Loading SAM2 model %s on %s...", self.model_id, self.device)
-            Tracker._model_cache[cache_key] = build_sam2_video_predictor_hf(
-                self.model_id, device=self.device
+            Tracker._model_cache[cache_key] = _build_sam2_video_predictor_for_model(
+                self.model_id, self.device
             )
             logger.info("SAM2 model loaded successfully")
         return Tracker._model_cache[cache_key]
@@ -150,7 +226,16 @@ class Tracker:
     
     def initialize(self, frames_dir: str):
         """Initialize tracking state for a video."""
-        self._inference_state = self.predictor.init_state(video_path=frames_dir)
+        import inspect
+        pred = self.predictor
+        sig = inspect.signature(pred.init_state)
+        if "device" in sig.parameters:
+            # Older PyPI sam2: init_state accepts an explicit device argument.
+            device = pred.device if hasattr(pred, "device") else self.device
+            self._inference_state = pred.init_state(video_path=frames_dir, device=device)
+        else:
+            # GitHub sam2: init_state uses the model's own device automatically.
+            self._inference_state = pred.init_state(video_path=frames_dir)
         self.predictor.reset_state(self._inference_state)
         self.video_segments = {}
         self.trajectories = {}
